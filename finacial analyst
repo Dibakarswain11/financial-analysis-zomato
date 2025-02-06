@@ -1,0 +1,120 @@
+# Financial Analysis Project: Stock Market Insights (Zomato)
+
+## Import Libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import yfinance as yf
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error
+from statsmodels.tsa.arima.model import ARIMA
+
+## Fetch Stock Data
+def fetch_stock_data(ticker, start, end):
+    stock = yf.download(ticker, start=start, end=end)
+    return stock
+
+# Example Usage
+stock_data = fetch_stock_data('ZOMATO.NS', '2023-01-01', '2024-01-01')
+print(stock_data.head())
+
+## Perform Financial Analysis
+def calculate_moving_average(data, window):
+    data[f'MA_{window}'] = data['Close'].rolling(window=window).mean()
+    return data
+
+stock_data = calculate_moving_average(stock_data, 50)
+
+## Calculate Volatility
+def calculate_volatility(data, window):
+    if len(data) < window:
+        return data  # Avoid calculating volatility if data length is insufficient
+    data[f'Volatility_{window}'] = data['Close'].pct_change().rolling(window=window).std()
+    return data
+
+stock_data = calculate_volatility(stock_data, 50)
+
+## Calculate Relative Strength Index (RSI)
+def calculate_rsi(data, window=14):
+    if len(data) < window:
+        return data  # Avoid RSI calculation if data length is insufficient
+    delta = data['Close'].diff(1)
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
+    return data
+
+stock_data = calculate_rsi(stock_data)
+
+## Calculate Bollinger Bands
+def calculate_bollinger_bands(data, window=20):
+    if len(data) < window:
+        return data  # Avoid Bollinger Bands calculation if data length is insufficient
+    data['BB_Middle'] = data['Close'].rolling(window=window).mean()
+    data['BB_Upper'] = data['BB_Middle'] + (2 * data['Close'].rolling(window=window).std())
+    data['BB_Lower'] = data['BB_Middle'] - (2 * data['Close'].rolling(window=window).std())
+    return data
+
+stock_data = calculate_bollinger_bands(stock_data)
+
+## Predict Future Prices Using Linear Regression
+def predict_stock_prices(data, future_days=30):
+    data['Prediction'] = data['Close'].shift(-future_days)
+    data = data.dropna()  # Drop NaN values to avoid errors
+    if len(data) < future_days:
+        print("Not enough data for prediction")
+        return []
+    X = data[['Close']]
+    y = data['Prediction']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+    mae = mean_absolute_error(y_test, predictions)
+    print(f'Mean Absolute Error: {mae}')
+    future_X = data[['Close']][-future_days:]
+    future_predictions = model.predict(future_X)
+    return future_predictions
+
+future_prices = predict_stock_prices(stock_data)
+print("Future Stock Price Predictions (Linear Regression):", future_prices)
+
+## Predict Future Prices Using ARIMA
+def predict_arima(data, future_days=30):
+    if len(data) < future_days:
+        print("Not enough data for ARIMA prediction")
+        return []
+    model = ARIMA(data['Close'], order=(5,1,0))  # ARIMA model with (p=5, d=1, q=0)
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=future_days)
+    return forecast
+
+arima_predictions = predict_arima(stock_data)
+print("Future Stock Price Predictions (ARIMA):", arima_predictions)
+
+## Visualization
+plt.figure(figsize=(10,5))
+plt.plot(stock_data['Close'], label='Closing Price')
+if 'MA_50' in stock_data.columns:
+    plt.plot(stock_data['MA_50'], label='50-Day Moving Average', linestyle='dashed')
+if 'BB_Upper' in stock_data.columns and 'BB_Lower' in stock_data.columns:
+    plt.plot(stock_data['BB_Upper'], label='Bollinger Upper Band', linestyle='dotted', color='red')
+    plt.plot(stock_data['BB_Lower'], label='Bollinger Lower Band', linestyle='dotted', color='blue')
+plt.legend()
+plt.title('Zomato Stock Price with Moving Average & Bollinger Bands')
+plt.show()
+
+## Plot RSI
+if 'RSI' in stock_data.columns:
+    plt.figure(figsize=(10, 3))
+    plt.plot(stock_data['RSI'], label='RSI', color='purple')
+    plt.axhline(70, linestyle='dashed', color='red')
+    plt.axhline(30, linestyle='dashed', color='green')
+    plt.legend()
+    plt.title('Zomato RSI Indicator')
+    plt.show()
+
+## Save Data for SQL and Excel
+stock_data.to_csv('zomato_stock_data.csv')
